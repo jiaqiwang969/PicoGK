@@ -14,3 +14,10 @@ We believe **Computational Engineering** will radically transform how we design 
 
 Explore more at [PicoGK.org](https://picogk.org).
 
+## Rust bindings
+
+Rust bindings live in `picogk-rs/`. See `picogk-rs/README.md`.
+
+## Repo verification
+
+Run `./tools/verify.sh`.

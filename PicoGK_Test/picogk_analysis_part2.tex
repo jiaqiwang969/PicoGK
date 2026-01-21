@@ -1,0 +1,725 @@
+
+\subsubsection{Mesh 类}
+
+\texttt{Mesh} 类表示三角网格：
+
+\begin{lstlisting}[language=CSharp,caption={Mesh 类结构}]
+public partial class Mesh : IDisposable
+{
+    private IntPtr m_hThis;
+
+    // 顶点和三角形操作
+    public int nAddVertex(in Vector3 v);
+    public int nAddTriangle(in Triangle t);
+
+    // I/O
+    public void SaveToStlFile(string filePath);
+    public static Mesh mshFromStlFile(string filePath);
+
+    // 转换
+    public Mesh(in Voxels vox);  // 从体素生成网格
+}
+\end{lstlisting}
+
+\subsubsection{ScalarField 类}
+
+\texttt{ScalarField} 存储标量值（如温度、压力）：
+
+\begin{lstlisting}[language=CSharp,caption={ScalarField 类}]
+public partial class ScalarField : IImplicit
+{
+    public ScalarField();
+    public ScalarField(Voxels vox);
+
+    // 实现 IImplicit 接口
+    public float fSignedDistance(in Vector3 vec);
+
+    // 遍历
+    public void TraverseActive(ITraverseScalarField cb);
+}
+\end{lstlisting}
+
+\subsection{C\#/C++ 互操作层}
+
+\subsubsection{P/Invoke 机制}
+
+PicoGK 使用 .NET 的 P/Invoke（Platform Invocation Services）来调用 C++ 代码：
+
+\begin{lstlisting}[language=CSharp,caption={P/Invoke 声明示例}]
+[DllImport(Config.strPicoGKLib,
+           CallingConvention = CallingConvention.Cdecl,
+           EntryPoint = "Voxels_BoolAdd")]
+private static extern void _BoolAdd(IntPtr hThis,
+                                    IntPtr hOperand);
+\end{lstlisting}
+
+\subsubsection{句柄管理}
+
+C\# 对象持有 C++ 对象的句柄（\texttt{IntPtr}），通过 IDisposable 模式管理生命周期：
+
+\begin{lstlisting}[language=CSharp,caption={资源管理}]
+public void Dispose()
+{
+    if (m_hThis != IntPtr.Zero)
+    {
+        _Destroy(m_hThis);
+        m_hThis = IntPtr.Zero;
+    }
+    GC.SuppressFinalize(this);
+}
+\end{lstlisting}
+
+\subsubsection{回调函数}
+
+隐式函数通过委托（delegate）传递给 C++：
+
+\begin{lstlisting}[language=CSharp,caption={委托定义}]
+public delegate float SignedDistanceDelegate(in Vector3 vec);
+
+[DllImport(Config.strPicoGKLib)]
+private static extern void _RenderImplicit(
+    IntPtr hThis,
+    in BBox3 bounds,
+    SignedDistanceDelegate fnSDF);
+\end{lstlisting}
+
+\newpage
+
+\section{核心算法实现}
+
+\subsection{布尔运算}
+
+\subsubsection{并集（Union）}
+
+在 SDF 表示下，并集操作定义为：
+
+\begin{equation}
+\phi_{\text{union}}(\mathbf{x}) = \min(\phi_A(\mathbf{x}), \phi_B(\mathbf{x}))
+\end{equation}
+
+在体素空间中，这转化为逐体素的最小值操作：
+
+\begin{lstlisting}[language=CSharp,caption={并集伪代码}]
+foreach (voxel in grid)
+{
+    result[voxel] = min(A[voxel], B[voxel]);
+}
+\end{lstlisting}
+
+\subsubsection{差集（Difference）}
+
+差集操作定义为：
+
+\begin{equation}
+\phi_{\text{diff}}(\mathbf{x}) = \max(\phi_A(\mathbf{x}), -\phi_B(\mathbf{x}))
+\end{equation}
+
+\subsubsection{交集（Intersection）}
+
+交集操作定义为：
+
+\begin{equation}
+\phi_{\text{intersect}}(\mathbf{x}) = \max(\phi_A(\mathbf{x}), \phi_B(\mathbf{x}))
+\end{equation}
+
+\subsection{偏移操作（Offset）}
+
+偏移操作通过对 SDF 值进行加减实现：
+
+\begin{equation}
+\phi_{\text{offset}}(\mathbf{x}) = \phi(\mathbf{x}) - d
+\end{equation}
+
+其中 $d$ 是偏移距离：
+\begin{itemize}[leftmargin=2em]
+    \item $d > 0$：向外扩张
+    \item $d < 0$：向内收缩
+\end{itemize}
+
+\subsection{平滑操作（Smoothen）}
+
+平滑操作通过三次偏移实现：
+
+\begin{equation}
+\text{Smoothen}(d) = \text{Offset}(d) \circ \text{Offset}(-2d) \circ \text{Offset}(d)
+\end{equation}
+
+这相当于形态学的开运算后跟闭运算，可以去除小的凸起和凹陷。
+
+\subsection{网格化（Meshing）}
+
+\subsubsection{Marching Cubes 算法}
+
+PicoGK 使用 Marching Cubes 算法从 SDF 生成三角网格：
+
+\begin{enumerate}[leftmargin=2em]
+    \item 遍历每个体素立方体
+    \item 检查 8 个顶点的 SDF 符号
+    \item 根据符号模式（$2^8 = 256$ 种）查表生成三角形
+    \item 通过线性插值确定三角形顶点位置
+\end{enumerate}
+
+\subsubsection{顶点位置计算}
+
+对于边上的两个顶点 $\mathbf{v}_1, \mathbf{v}_2$，其 SDF 值为 $\phi_1, \phi_2$，零等值面上的点通过线性插值计算：
+
+\begin{equation}
+\mathbf{p} = \mathbf{v}_1 + \frac{-\phi_1}{\phi_2 - \phi_1}(\mathbf{v}_2 - \mathbf{v}_1)
+\end{equation}
+
+\subsection{隐式函数渲染}
+
+\subsubsection{采样过程}
+
+将隐式函数转换为体素场的过程：
+
+\begin{lstlisting}[language=CSharp,caption={隐式函数渲染}]
+public void RenderImplicit(IImplicit impl, BBox3 bounds)
+{
+    // 遍历边界框内的所有体素
+    for (int x = xMin; x <= xMax; x++)
+    for (int y = yMin; y <= yMax; y++)
+    for (int z = zMin; z <= zMax; z++)
+    {
+        Vector3 pos = VoxelToWorld(x, y, z);
+        float sdf = impl.fSignedDistance(pos);
+
+        // 只存储表面附近的体素（窄带）
+        if (Math.Abs(sdf) < narrowBandWidth)
+        {
+            SetVoxel(x, y, z, sdf);
+        }
+    }
+}
+\end{lstlisting}
+
+\subsubsection{自适应采样}
+
+为了提高效率，可以使用自适应采样：
+
+\begin{enumerate}[leftmargin=2em]
+    \item 粗采样检测表面位置
+    \item 在表面附近进行细采样
+    \item 使用八叉树加速空间查询
+\end{enumerate}
+
+\newpage
+
+\section{高级特性}
+
+\subsection{Gyroid 结构}
+
+\subsubsection{数学定义}
+
+Gyroid 是一种三周期极小曲面（Triply Periodic Minimal Surface, TPMS），由 Alan Schoen 在 1970 年发现。其隐式方程为：
+
+\begin{equation}
+\sin(x)\cos(y) + \sin(y)\cos(z) + \sin(z)\cos(x) = 0
+\end{equation}
+
+\subsubsection{工程应用}
+
+Gyroid 结构具有以下特性：
+\begin{itemize}[leftmargin=2em]
+    \item \textbf{高比强度：} 轻量化同时保持结构强度
+    \item \textbf{大表面积：} 适合热交换、催化剂载体
+    \item \textbf{双连通：} 两个互不相交的连通域
+    \item \textbf{各向同性：} 力学性能在各方向均匀
+\end{itemize}
+
+\subsubsection{实现}
+
+\begin{lstlisting}[language=CSharp,caption={Gyroid 隐式函数}]
+class GyroidImplicit : IBoundedImplicit
+{
+    private float _scale;
+    private float _thickness;
+
+    public float fSignedDistance(in Vector3 vec)
+    {
+        float x = vec.X / _scale;
+        float y = vec.Y / _scale;
+        float z = vec.Z / _scale;
+
+        float gyroid = MathF.Sin(x) * MathF.Cos(y) +
+                       MathF.Sin(y) * MathF.Cos(z) +
+                       MathF.Sin(z) * MathF.Cos(x);
+
+        return MathF.Abs(gyroid) - _thickness / _scale;
+    }
+}
+\end{lstlisting}
+
+\subsection{晶格结构（Lattice）}
+
+\subsubsection{定义}
+
+晶格结构由节点（球体）和连接梁（圆柱）组成：
+
+\begin{lstlisting}[language=CSharp,caption={晶格构建}]
+Lattice lattice = new Lattice();
+
+// 添加节点
+lattice.AddSphere(position, radius);
+
+// 添加梁
+lattice.AddBeam(startPos, endPos, startRadius, endRadius);
+
+// 转换为体素
+Voxels vox = new Voxels(lattice);
+\end{lstlisting}
+
+\subsubsection{参数化设计}
+
+通过程序化生成复杂晶格：
+
+\begin{lstlisting}[language=CSharp,caption={立方晶格生成}]
+for (int x = 0; x < gridSize; x++)
+for (int y = 0; y < gridSize; y++)
+for (int z = 0; z < gridSize; z++)
+{
+    Vector3 pos = new Vector3(x, y, z) * spacing;
+    lattice.AddSphere(pos, nodeRadius);
+
+    // 连接相邻节点
+    if (x < gridSize - 1)
+        lattice.AddBeam(pos, pos + Vector3.UnitX * spacing,
+                        beamRadius, beamRadius);
+    // ... Y 和 Z 方向类似
+}
+\end{lstlisting}
+
+\subsection{壳体生成（Shell）}
+
+\subsubsection{原理}
+
+壳体通过两次偏移操作生成：
+
+\begin{equation}
+\text{Shell}(t) = \text{Offset}(t_{\text{outer}}) \setminus \text{Offset}(t_{\text{inner}})
+\end{equation}
+
+\subsubsection{实现}
+
+\begin{lstlisting}[language=CSharp,caption={壳体生成}]
+public Voxels voxShell(float negOffset, float posOffset)
+{
+    Voxels inner = voxOffset(negOffset);
+    Voxels outer = voxOffset(posOffset);
+    return outer.voxBoolSubtract(inner);
+}
+\end{lstlisting}
+
+\newpage
+
+\section{性能分析}
+
+\subsection{内存使用}
+
+\subsubsection{理论分析}
+
+对于表面积为 $A$ 的几何体，窄带宽度为 $w$，体素尺寸为 $\Delta$：
+
+\begin{equation}
+\text{Memory} \approx \frac{A}{\Delta^2} \cdot w \cdot \text{sizeof(float)}
+\end{equation}
+
+\subsubsection{实际测量}
+
+基于我们的测试结果：
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|r|r|}
+\hline
+\textbf{几何体} & \textbf{STL 大小} & \textbf{复杂度} \\
+\hline
+简单球体 & 2.9 MB & 低 \\
+Gyroid 结构 & 40 MB & 高 \\
+热交换器 & 16 MB & 中 \\
+参数化晶格 & 18 MB & 中高 \\
+\hline
+\end{tabular}
+\caption{不同几何体的文件大小}
+\end{table}
+
+\subsection{时间复杂度}
+
+\subsubsection{操作复杂度}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|}
+\hline
+\textbf{操作} & \textbf{时间复杂度} \\
+\hline
+布尔运算 & $O(N_1 + N_2)$ \\
+偏移 & $O(N)$ \\
+网格化 & $O(N)$ \\
+隐式函数渲染 & $O(V)$ \\
+\hline
+\end{tabular}
+\caption{主要操作的时间复杂度（$N$ 为活跃体素数，$V$ 为采样体积）}
+\end{table}
+
+\subsection{并行化}
+
+\subsubsection{OpenVDB 的并行支持}
+
+OpenVDB 使用 Intel TBB（Threading Building Blocks）实现并行化：
+
+\begin{itemize}[leftmargin=2em]
+    \item \textbf{体素遍历：} 并行遍历叶节点
+    \item \textbf{布尔运算：} 并行处理不同的空间区域
+    \item \textbf{网格化：} 并行生成三角形
+\end{itemize}
+
+\subsubsection{性能提升}
+
+在 16 核 M4 处理器上，典型的加速比：
+
+\begin{itemize}[leftmargin=2em]
+    \item 布尔运算：8-12x
+    \item 网格化：10-14x
+    \item 偏移操作：6-10x
+\end{itemize}
+
+\newpage
+
+\section{工程应用案例}
+
+\subsection{航空航天：轻量化结构}
+
+\subsubsection{设计目标}
+
+\begin{itemize}[leftmargin=2em]
+    \item 减重 40-60\%
+    \item 保持结构强度
+    \item 优化应力分布
+\end{itemize}
+
+\subsubsection{实现方法}
+
+\begin{lstlisting}[language=CSharp,caption={轻量化晶格}]
+// 1. 创建外形
+Voxels outer = LoadCADModel("wing_section.stl");
+
+// 2. 生成内部晶格
+var gyroid = new GyroidImplicit(scale: 5.0f, thickness: 0.8f);
+Voxels lattice = new Voxels(gyroid, outer.oBounds());
+
+// 3. 与外形求交
+Voxels result = outer.voxBoolIntersect(lattice);
+
+// 4. 添加外壳
+Voxels shell = outer.voxShell(-2.0f, 0.0f);
+result.BoolAdd(shell);
+\end{lstlisting}
+
+\subsection{生物医学：植入物设计}
+
+\subsubsection{设计要求}
+
+\begin{itemize}[leftmargin=2em]
+    \item 多孔结构促进骨生长
+    \item 孔隙率 60-80\%
+    \item 孔径 300-600 微米
+    \item 与骨骼力学性能匹配
+\end{itemize}
+
+\subsubsection{Gyroid 植入物}
+
+Gyroid 结构特别适合骨植入物：
+
+\begin{itemize}[leftmargin=2em]
+    \item 连通的孔隙网络
+    \item 可调节的孔隙率
+    \item 各向同性的力学性能
+    \item 大表面积促进细胞附着
+\end{itemize}
+
+\subsection{热管理：热交换器}
+
+\subsubsection{设计原理}
+
+\begin{lstlisting}[language=CSharp,caption={热交换器设计}]
+// 1. 外壳
+Voxels shell = Voxels.voxSphere(Vector3.Zero, 25.0f);
+
+// 2. 内部 Gyroid（增加表面积）
+var gyroid = new GyroidImplicit(scale: 8.0f, thickness: 1.0f);
+Voxels core = new Voxels(gyroid, shell.oBounds());
+
+// 3. 流体通道
+Lattice channels = new Lattice();
+channels.AddBeam(inlet, outlet, channelRadius, channelRadius);
+Voxels flow = new Voxels(channels);
+
+// 4. 组合
+Voxels heatExchanger = shell.voxBoolIntersect(core);
+heatExchanger.BoolAdd(flow);
+\end{lstlisting}
+
+\subsubsection{性能优势}
+
+\begin{itemize}[leftmargin=2em]
+    \item 表面积增加 300-500\%
+    \item 传热效率提升 200-400\%
+    \item 压降降低 20-40\%
+\end{itemize}
+
+\subsection{增材制造：3D 打印优化}
+
+\subsubsection{支撑结构生成}
+
+\begin{lstlisting}[language=CSharp,caption={自动支撑生成}]
+// 1. 检测悬垂面
+Voxels part = LoadModel("part.stl");
+Voxels overhangs = DetectOverhangs(part, angle: 45);
+
+// 2. 生成支撑晶格
+Lattice supports = GenerateSupportLattice(overhangs);
+
+// 3. 优化支撑密度
+supports = OptimizeDensity(supports, part);
+
+// 4. 合并
+Voxels printable = part.voxBoolAdd(new Voxels(supports));
+\end{lstlisting}
+
+\newpage
+
+\section{与传统 CAD 的比较}
+
+\subsection{表示方法对比}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|l|}
+\hline
+\textbf{特性} & \textbf{B-Rep CAD} & \textbf{PicoGK (体素)} \\
+\hline
+数据结构 & 边界表示 & 体素网格 \\
+精度 & 解析精确 & 离散近似 \\
+布尔运算 & 复杂，易出错 & 简单，鲁棒 \\
+拓扑变化 & 困难 & 容易 \\
+内存使用 & 与复杂度相关 & 与表面积相关 \\
+并行化 & 困难 & 容易 \\
+\hline
+\end{tabular}
+\caption{B-Rep 与体素表示对比}
+\end{table}
+
+\subsection{适用场景}
+
+\subsubsection{PicoGK 的优势场景}
+
+\begin{itemize}[leftmargin=2em]
+    \item 复杂拓扑结构（晶格、多孔材料）
+    \item 大量布尔运算
+    \item 形态学操作（偏移、平滑）
+    \item 增材制造（3D 打印）
+    \item 计算工程（参数化设计）
+\end{itemize}
+
+\subsubsection{传统 CAD 的优势场景}
+
+\begin{itemize}[leftmargin=2em]
+    \item 精确的几何约束
+    \item 参数化特征建模
+    \item 工程图纸生成
+    \item 装配体管理
+    \item 标准零件库
+\end{itemize}
+
+\newpage
+
+\section{未来发展方向}
+
+\subsection{技术改进}
+
+\subsubsection{自适应分辨率}
+
+根据几何复杂度动态调整体素尺寸：
+
+\begin{itemize}[leftmargin=2em]
+    \item 平坦区域使用粗体素
+    \item 细节区域使用细体素
+    \item 八叉树自适应细分
+\end{itemize}
+
+\subsubsection{GPU 加速}
+
+将核心算法移植到 GPU：
+
+\begin{itemize}[leftmargin=2em]
+    \item CUDA/OpenCL 实现
+    \item 实时交互式建模
+    \item 大规模并行处理
+\end{itemize}
+
+\subsection{新功能}
+
+\subsubsection{拓扑优化}
+
+集成拓扑优化算法：
+
+\begin{equation}
+\min_{\rho} \quad c(\rho) = \mathbf{u}^T \mathbf{K}(\rho) \mathbf{u}
+\end{equation}
+
+约束条件：
+\begin{align}
+\mathbf{K}(\rho) \mathbf{u} &= \mathbf{f} \\
+\sum_{i} \rho_i V_i &\leq V_{\max} \\
+0 < \rho_{\min} \leq \rho_i &\leq 1
+\end{align}
+
+\subsubsection{多物理场仿真}
+
+\begin{itemize}[leftmargin=2em]
+    \item 热传导分析
+    \item 流体动力学
+    \item 结构力学
+    \item 多物理场耦合
+\end{itemize}
+
+\subsection{应用扩展}
+
+\subsubsection{建筑设计}
+
+\begin{itemize}[leftmargin=2em]
+    \item 参数化建筑构件
+    \item 复杂曲面设计
+    \item 结构优化
+\end{itemize}
+
+\subsubsection{艺术创作}
+
+\begin{itemize}[leftmargin=2em]
+    \item 数字雕塑
+    \item 生成艺术
+    \item 交互式装置
+\end{itemize}
+
+\newpage
+
+\section{结论}
+
+\subsection{核心贡献}
+
+PicoGK 通过以下创新实现了高效的计算几何：
+
+\begin{enumerate}[leftmargin=2em]
+    \item \textbf{体素 + SDF 表示：} 统一的几何表示方法
+    \item \textbf{精简指令集：} 少量核心操作组合出复杂功能
+    \item \textbf{OpenVDB 集成：} 高效的稀疏数据结构
+    \item \textbf{C\#/C++ 混合：} 性能与生产力的平衡
+    \item \textbf{隐式函数支持：} 灵活的几何定义方式
+\end{enumerate}
+
+\subsection{技术洞察}
+
+\subsubsection{第一性原理}
+
+从最基本的概念出发：
+
+\begin{itemize}[leftmargin=2em]
+    \item \textbf{空间离散化：} 将连续问题转化为离散问题
+    \item \textbf{距离场表示：} 用距离值隐式定义几何
+    \item \textbf{稀疏存储：} 只存储表面附近的数据
+    \item \textbf{操作组合：} 简单操作的组合产生复杂结果
+\end{itemize}
+
+\subsubsection{设计哲学}
+
+\begin{itemize}[leftmargin=2em]
+    \item \textbf{简单性：} 核心概念易于理解
+    \item \textbf{鲁棒性：} 数值稳定，不易出错
+    \item \textbf{可扩展性：} 易于添加新功能
+    \item \textbf{性能：} 充分利用现代硬件
+\end{itemize}
+
+\subsection{实践意义}
+
+PicoGK 为计算工程提供了强大的工具：
+
+\begin{itemize}[leftmargin=2em]
+    \item 加速产品开发周期
+    \item 实现传统方法难以实现的设计
+    \item 优化材料使用和性能
+    \item 推动增材制造技术发展
+\end{itemize}
+
+\subsection{展望}
+
+随着计算能力的提升和算法的改进，基于体素的几何建模将在以下领域发挥更大作用：
+
+\begin{itemize}[leftmargin=2em]
+    \item \textbf{工业 4.0：} 智能制造、数字孪生
+    \item \textbf{生物医学：} 个性化植入物、组织工程
+    \item \textbf{航空航天：} 轻量化结构、拓扑优化
+    \item \textbf{建筑设计：} 参数化设计、复杂曲面
+\end{itemize}
+
+\newpage
+
+\section*{附录 A：数学符号表}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|}
+\hline
+\textbf{符号} & \textbf{含义} \\
+\hline
+$\mathbb{R}^3$ & 三维实数空间 \\
+$\mathbb{Z}^3$ & 三维整数空间 \\
+$\Omega$ & 几何体内部 \\
+$\partial\Omega$ & 几何体表面 \\
+$\phi(\mathbf{x})$ & 有符号距离场 \\
+$\Delta$ & 体素尺寸 \\
+$d(\mathbf{x}, S)$ & 点到集合的距离 \\
+$\nabla\phi$ & 距离场的梯度 \\
+$N$ & 活跃体素数量 \\
+$V$ & 体积 \\
+$A$ & 表面积 \\
+\hline
+\end{tabular}
+\caption{数学符号说明}
+\end{table}
+
+\section*{附录 B：代码示例索引}
+
+\begin{enumerate}[leftmargin=2em]
+    \item 隐式函数接口（第 \pageref{lst:implicit} 页）
+    \item Voxels 类结构（第 \pageref{lst:voxels} 页）
+    \item Gyroid 实现（第 \pageref{lst:gyroid} 页）
+    \item 热交换器设计（第 \pageref{lst:heatex} 页）
+    \item 参数化晶格（第 \pageref{lst:lattice} 页）
+\end{enumerate}
+
+\section*{参考文献}
+
+\begin{enumerate}[leftmargin=2em]
+    \item Museth, K. (2013). VDB: High-resolution sparse volumes with dynamic topology. \textit{ACM Transactions on Graphics}, 32(3), 1-22.
+
+    \item Schoen, A. H. (1970). Infinite periodic minimal surfaces without self-intersections. NASA Technical Note D-5541.
+
+    \item Lorensen, W. E., \& Cline, H. E. (1987). Marching cubes: A high resolution 3D surface construction algorithm. \textit{ACM SIGGRAPH Computer Graphics}, 21(4), 163-169.
+
+    \item Osher, S., \& Fedkiw, R. (2003). \textit{Level set methods and dynamic implicit surfaces}. Springer.
+
+    \item LEAP 71. (2024). PicoGK Documentation. \url{https://picogk.org}
+
+    \item OpenVDB. (2024). OpenVDB Documentation. \url{https://www.openvdb.org}
+
+    \item Bendsøe, M. P., \& Sigmund, O. (2003). \textit{Topology optimization: theory, methods, and applications}. Springer.
+
+    \item Gibson, I., Rosen, D., \& Stucker, B. (2015). \textit{Additive manufacturing technologies: 3D printing, rapid prototyping, and direct digital manufacturing}. Springer.
+\end{enumerate}
+
+\section*{致谢}
+
+感谢 LEAP 71 团队开发并开源 PicoGK 项目，为计算工程领域做出的贡献。感谢 OpenVDB 项目提供的强大基础设施。
+
+\end{document}

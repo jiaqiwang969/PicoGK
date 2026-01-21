@@ -1,0 +1,88 @@
+name: Rust
+
+on:
+  push:
+    paths:
+      - "picogk-rs/**"
+      - "native/**"
+      - ".github/workflows/**"
+  pull_request:
+    paths:
+      - "picogk-rs/**"
+      - "native/**"
+      - ".github/workflows/**"
+
+jobs:
+  macos-arm64:
+    name: macOS arm64 (fmt/clippy/test)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+      - name: fmt
+        working-directory: picogk-rs
+        run: cargo fmt --check
+      - name: clippy
+        working-directory: picogk-rs
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: test
+        working-directory: picogk-rs
+        run: cargo test --all-features
+      - name: csharp parity (AdvancedExamples)
+        working-directory: picogk-rs
+        run: cargo test --test csharp_advanced_examples_parity -- --ignored
+
+  linux-lints:
+    name: Linux (fmt/clippy --lib, no native)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - name: fmt
+        working-directory: picogk-rs
+        run: cargo fmt --check
+      - name: clippy (lib only)
+        working-directory: picogk-rs
+        env:
+          PICOGK_NO_NATIVE: "1"
+        run: cargo clippy --all-features --lib -- -D warnings
+      - name: check (lib only)
+        working-directory: picogk-rs
+        env:
+          PICOGK_NO_NATIVE: "1"
+        run: cargo check --all-features --lib
+
+  windows-x64:
+    name: Windows x64 (fmt/clippy/test)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+      - name: Add native DLLs to PATH
+        shell: pwsh
+        run: |
+          Add-Content $env:GITHUB_PATH "${{ github.workspace }}\native\win-x64"
+      - name: fmt
+        working-directory: picogk-rs
+        run: cargo fmt --check
+      - name: clippy
+        working-directory: picogk-rs
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: test
+        working-directory: picogk-rs
+        run: cargo test --all-features
+      - name: csharp parity (AdvancedExamples)
+        working-directory: picogk-rs
+        run: cargo test --test csharp_advanced_examples_parity -- --ignored
