@@ -577,10 +577,10 @@ namespace PicoGK
             Voxels voxInner = voxOffset(fNegOffsetMM);
             
             if (fSmoothInnerMM > 0)
-                voxInner.voxTripleOffset(fSmoothInnerMM);
+                voxInner.TripleOffset(fSmoothInnerMM);
             
             Voxels voxOuter = voxOffset(fPosOffsetMM);
-            voxOuter.voxBoolSubtract(voxInner);
+            voxOuter.BoolSubtract(voxInner);
 
             return voxOuter;
         }

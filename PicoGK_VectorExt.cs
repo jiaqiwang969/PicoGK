@@ -40,7 +40,8 @@ namespace PicoGK
 {
     public static class Vector3Ext
 	{
-        static readonly float fSigma = 1e6f;
+        // Tolerance for "unit length" checks.
+        static readonly float fSigma = 1e-6f;
         /// <summary>
         /// Returns the normalized version of the vector
         /// If too small to normalize, returns Vector3.Zero
@@ -48,7 +49,10 @@ namespace PicoGK
         /// 
         public static Vector3 vecNormalized(this Vector3 vec)
         {
-            return Vector3.Normalize(vec);
+            float len = vec.Length();
+            if (len <= float.Epsilon)
+                return Vector3.Zero;
+            return vec / len;
         }
         /// <summary>
         /// Returns a mirrored version of the vector.

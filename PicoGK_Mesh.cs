@@ -76,9 +76,10 @@ namespace PicoGK
                                 out Vector3 B,
                                 out Vector3 C);
 
-                A *= vecScale.X;
-                B *= vecScale.Y;
-                C *= vecScale.Z;
+                // Component-wise scaling (X/Y/Z).
+                A = Vector3.Multiply(A, vecScale);
+                B = Vector3.Multiply(B, vecScale);
+                C = Vector3.Multiply(C, vecScale);
 
                 A += vecOffset;
                 B += vecOffset;
