@@ -161,6 +161,7 @@ namespace PicoGK
                 try
                 {
                     // Create a config using physical coordinates
+                    Config.TryLoadNativeRuntime();
                     _Init(fVoxelSizeMM);
                     // Done creating C++ Library
                 }
@@ -410,6 +411,7 @@ namespace PicoGK
             try
             {
                 // Create a config using physical coordinates
+                Config.TryLoadNativeRuntime();
                 _Init(fVoxelSizeMM);
                 // Done creating C++ Library
             }
