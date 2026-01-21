@@ -1,6 +1,0 @@
-# Rust build artifacts (redundant with repo root, but keeps the crate clean when used standalone)
-/target/
-
-# Example/demo outputs (examples default to writing into the crate root)
-/*.stl
-/*.vdb
