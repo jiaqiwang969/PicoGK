@@ -1,0 +1,51 @@
+[package]
+name = "picogk"
+version = "1.7.7"
+edition = "2021"
+authors = ["LEAP 71 <info@leap71.com>"]
+description = "Rust bindings for PicoGK - Compact geometry kernel for Computational Engineering"
+license = "Apache-2.0"
+repository = "https://github.com/leap71/PicoGK"
+homepage = "https://picogk.org"
+keywords = ["geometry", "voxel", "cad", "computational-engineering", "3d"]
+categories = ["graphics", "science", "simulation"]
+
+[dependencies]
+# 线性代数
+nalgebra = "0.33"
+
+# 错误处理
+thiserror = "2.0"
+chrono = "0.4"
+zip = "0.6"
+
+# 序列化
+serde = { version = "1.0", features = ["derive"], optional = true }
+
+
+[build-dependencies]
+
+[dev-dependencies]
+serial_test = "3"
+
+[features]
+default = []
+serde = ["dep:serde", "nalgebra/serde-serialize"]
+
+[lib]
+name = "picogk"
+path = "src/lib.rs"
+
+[[example]]
+name = "basic"
+path = "examples/basic.rs"
+
+[[example]]
+name = "gyroid"
+path = "examples/gyroid.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
