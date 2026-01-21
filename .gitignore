@@ -511,5 +511,12 @@ xcuserdata/
 # Generated example outputs
 PicoGK_Test/*.stl
 
+# LaTeX build artifacts (PicoGK_Test docs)
+PicoGK_Test/*.aux
+PicoGK_Test/*.toc
+PicoGK_Test/*.synctex.gz
+PicoGK_Test/*.fls
+PicoGK_Test/*.fdb_latexmk
+
 # Local packaging output
 nupkg_out/
