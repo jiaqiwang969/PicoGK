@@ -8,6 +8,13 @@
 !native/**/*.dll
 !native/**/*.dylib
 
+# Rust build artifacts
+target/
+**/target/
+
+# Codex local workspace state
+.codex/
+
 # globs
 Makefile.in
 *.userprefs
@@ -261,6 +268,7 @@ PublishScripts/
 
 # NuGet Packages
 *.nupkg
+*.snupkg
 # The packages folder can be ignored because of Package Restore
 **/[Pp]ackages/*
 # except build/, which is used as an MSBuild target.
@@ -500,3 +508,8 @@ xcuserdata/
 *.out
 *.app
 
+# Generated example outputs
+PicoGK_Test/*.stl
+
+# Local packaging output
+nupkg_out/
