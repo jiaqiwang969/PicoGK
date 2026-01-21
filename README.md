@@ -21,3 +21,7 @@ Rust bindings live in `picogk-rs/`. See `picogk-rs/README.md`.
 ## Repo verification
 
 Run `./tools/verify.sh`.
+
+## Cleanup
+
+Remove local build artifacts with `./tools/clean.sh` (add `--all` to also delete large ignored outputs).
